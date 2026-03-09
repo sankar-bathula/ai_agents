@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+yfinance
+pandas_ta
+requests
+xgboost
+lightgbm
+tensorflow
+python-dotenv
