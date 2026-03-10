@@ -5,6 +5,7 @@ import streamlit as st
 
 from agents.data_agent import get_fundamentals, get_price_history
 from agents.fundamental_agent import compute_basic_ratios
+from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
 
 
@@ -27,6 +28,13 @@ def load_fundamentals(ticker: str):
     return get_fundamentals(ticker)
 
 
+@st.cache_data(show_spinner=False)
+def load_sentiment(ticker: str):
+    """
+    Use the Sentiment Agent to fetch recent news and compute a simple score.
+    """
+    return analyze_recent_sentiment(ticker)
+
 def main() -> None:
     col_left, col_right = st.columns([2, 1])
 
@@ -39,6 +47,7 @@ def main() -> None:
 
     with col_right:
         show_raw = st.checkbox("Show raw data table", value=False)
+        show_sentiment = st.checkbox("Show news sentiment", value=True)
 
     if not ticker:
         st.info("Enter a ticker symbol to begin.")
@@ -95,6 +104,43 @@ def main() -> None:
     # Ensure Arrow compatibility by converting the Value column to strings.
     df_fund["Value"] = df_fund["Value"].astype(str)
     st.table(df_fund)
+
+    if show_sentiment:
+        st.subheader("News sentiment (free Yahoo! Finance feed)")
+        try:
+            sentiment_result = load_sentiment(ticker)
+            summary = sentiment_result.get("summary", {})
+            mean_score = summary.get("mean_score", 0.0)
+            headline_count = summary.get("headline_count", 0)
+
+            # Simple textual interpretation of the score.
+            if mean_score > 0.15:
+                sentiment_label = "Bullish"
+            elif mean_score < -0.15:
+                sentiment_label = "Bearish"
+            else:
+                sentiment_label = "Neutral"
+
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1:
+                st.metric("Average headline score", f"{mean_score:.2f}")
+            with col_s2:
+                st.metric("Interpretation", sentiment_label)
+            with col_s3:
+                st.metric("Headline count", str(headline_count))
+
+            table = sentiment_result.get("table")
+            if table is not None and not table.empty:
+                # Convert datetimes to string for display safety.
+                table = table.copy()
+                if "published_at" in table.columns:
+                    table["published_at"] = table["published_at"].astype(str)
+                st.caption("Recent headlines with sentiment scores")
+                st.dataframe(table[["published_at", "publisher", "title", "sentiment_score"]])
+            else:
+                st.info("No recent news headlines available for this ticker.")
+        except Exception as exc:  # pragma: no cover - UI path
+            st.warning(f"Sentiment analysis unavailable: {exc}")
 
     if show_raw:
         st.subheader("Raw enriched data (tail)")
