@@ -14,6 +14,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from agents.data_agent import get_fundamentals, get_price_history
 from agents.fundamental_agent import compute_basic_ratios
+from agents.risk_agent import analyze_position_risk
 from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
 
@@ -113,6 +114,88 @@ def main() -> None:
     # Ensure Arrow compatibility by converting the Value column to strings.
     df_fund["Value"] = df_fund["Value"].astype(str)
     st.table(df_fund)
+
+    st.subheader("Risk / Reward analysis")
+    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+    with col_r1:
+        entry_price = st.number_input(
+            "Entry price",
+            value=float(last_close),
+            min_value=0.0,
+            format="%.2f",
+        )
+    with col_r2:
+        stop_loss = st.number_input(
+            "Stop loss",
+            value=float(last_close * 0.95),
+            min_value=0.0,
+            format="%.2f",
+        )
+    with col_r3:
+        target_price = st.number_input(
+            "Target price",
+            value=float(last_close * 1.10),
+            min_value=0.0,
+            format="%.2f",
+        )
+    with col_r4:
+        capital_input = st.number_input(
+            "Account capital (optional)",
+            value=0.0,
+            min_value=0.0,
+            format="%.2f",
+            help="Used to suggest a position size based on max risk per trade.",
+        )
+
+    max_risk_pct_ui = st.slider(
+        "Max risk % per trade",
+        min_value=0.5,
+        max_value=5.0,
+        value=1.0,
+        step=0.5,
+        help="Capital percentage you are willing to risk on a single trade.",
+    )
+
+    try:
+        capital = capital_input if capital_input > 0 else None
+        risk_result = analyze_position_risk(
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            target_price=target_price,
+            capital=capital,
+            max_risk_pct=max_risk_pct_ui / 100.0,
+        )
+
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            st.metric("Risk / share", f"{risk_result['risk_per_share']:.2f}")
+        with col_m2:
+            st.metric("Reward / share", f"{risk_result['reward_per_share']:.2f}")
+        with col_m3:
+            st.metric("Risk-Reward", risk_result["ratio_display"])
+        with col_m4:
+            st.metric(
+                "% to stop / target",
+                f"{risk_result['percent_to_stop']:.1f}% / {risk_result['percent_to_target']:.1f}%",
+            )
+
+        if capital is not None and risk_result.get("max_risk_amount") is not None:
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                st.metric(
+                    "Max risk amount",
+                    f"{risk_result['max_risk_amount']:.2f}",
+                    help="Maximum risk per trade based on your capital and max risk %.",
+                )
+            with col_c2:
+                size = risk_result.get("recommended_position_size")
+                size_display = str(size) if size is not None else "N/A"
+                st.metric(
+                    "Suggested position size (shares)",
+                    size_display,
+                )
+    except Exception as exc:  # pragma: no cover - UI path
+        st.info(f"Unable to compute risk/reward: {exc}")
 
     if show_sentiment:
         st.subheader("News sentiment (free Yahoo! Finance feed)")
