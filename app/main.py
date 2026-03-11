@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
+
+# Ensure the repository root is on sys.path so `import agents.*` works
+# even when running `streamlit run app/main.py` from inside `app/`.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from agents.data_agent import get_fundamentals, get_price_history
 from agents.fundamental_agent import compute_basic_ratios
