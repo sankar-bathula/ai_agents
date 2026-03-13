@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
 # Ensure the repository root is on sys.path so `import agents.*` works
 # even when running `streamlit run app/main.py` from inside `app/`.
@@ -14,10 +15,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 from agents.data_agent import get_fundamentals, get_price_history
 from agents.fundamental_agent import compute_basic_ratios
+from agents.newsapi_agent import analyze_newsapi_sentiment
 from agents.risk_agent import analyze_position_risk
 from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
 
+
+load_dotenv()
 
 st.set_page_config(
     page_title="AI Stock Analyzer (Minimal Demo)",
@@ -45,6 +49,16 @@ def load_sentiment(ticker: str):
     """
     return analyze_recent_sentiment(ticker)
 
+
+@st.cache_data(show_spinner=False)
+def load_newsapi(query: str, max_items: int = 30, language: str = "en"):
+    """
+    Fetch NewsAPI articles and compute a simple sentiment score.
+    Requires env var NEWSAPI_KEY (loaded from .env if present).
+    """
+    return analyze_newsapi_sentiment(query, max_items=max_items, language=language)
+
+
 def main() -> None:
     col_left, col_right = st.columns([2, 1])
 
@@ -58,6 +72,7 @@ def main() -> None:
     with col_right:
         show_raw = st.checkbox("Show raw data table", value=False)
         show_sentiment = st.checkbox("Show news sentiment", value=True)
+        show_newsapi = st.checkbox("Show NewsAPI sentiment", value=False)
 
     if not ticker:
         st.info("Enter a ticker symbol to begin.")
@@ -233,6 +248,66 @@ def main() -> None:
                 st.info("No recent news headlines available for this ticker.")
         except Exception as exc:  # pragma: no cover - UI path
             st.warning(f"Sentiment analysis unavailable: {exc}")
+
+    if show_newsapi:
+        st.subheader("News sentiment (NewsAPI.org)")
+        col_n1, col_n2, col_n3 = st.columns([2, 1, 1])
+        with col_n1:
+            news_query = st.text_input(
+                "NewsAPI query",
+                value=ticker,
+                help="You can use a ticker, company name, or phrase (e.g. 'Reliance Industries').",
+            )
+        with col_n2:
+            news_lang = st.selectbox("Language", options=["en"], index=0)
+        with col_n3:
+            news_max = st.number_input(
+                "Max articles",
+                min_value=5,
+                max_value=100,
+                value=30,
+                step=5,
+            )
+
+        try:
+            newsapi_result = load_newsapi(news_query, max_items=int(news_max), language=news_lang)
+            summary = newsapi_result.get("summary", {})
+            mean_score = float(summary.get("mean_score", 0.0))
+            article_count = int(summary.get("article_count", 0))
+
+            if mean_score > 0.15:
+                sentiment_label = "Bullish"
+            elif mean_score < -0.15:
+                sentiment_label = "Bearish"
+            else:
+                sentiment_label = "Neutral"
+
+            col_a1, col_a2, col_a3 = st.columns(3)
+            with col_a1:
+                st.metric("Average article score", f"{mean_score:.2f}")
+            with col_a2:
+                st.metric("Interpretation", sentiment_label)
+            with col_a3:
+                st.metric("Article count", str(article_count))
+
+            table = newsapi_result.get("table")
+            if table is not None and not table.empty:
+                table = table.copy()
+                if "published_at" in table.columns:
+                    table["published_at"] = table["published_at"].astype(str)
+                st.caption("Recent articles with sentiment scores")
+                st.dataframe(
+                    table[
+                        ["published_at", "source", "title", "description", "sentiment_score", "url"]
+                    ]
+                )
+            else:
+                st.info("No NewsAPI articles returned for this query.")
+        except Exception as exc:  # pragma: no cover - UI path
+            st.warning(
+                "NewsAPI sentiment unavailable. Ensure NEWSAPI_KEY is set and your plan allows the request. "
+                f"Error: {exc}"
+            )
 
     if show_raw:
         st.subheader("Raw enriched data (tail)")
