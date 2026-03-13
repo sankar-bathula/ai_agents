@@ -19,6 +19,7 @@ from agents.newsapi_agent import analyze_newsapi_sentiment
 from agents.risk_agent import analyze_position_risk
 from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
+from agents.candlestick_agent import analyze_candlestick_patterns
 
 
 load_dotenv()
@@ -73,6 +74,7 @@ def main() -> None:
         show_raw = st.checkbox("Show raw data table", value=False)
         show_sentiment = st.checkbox("Show news sentiment", value=True)
         show_newsapi = st.checkbox("Show NewsAPI sentiment", value=False)
+        show_candles = st.checkbox("Show candlestick patterns", value=False)
 
     if not ticker:
         st.info("Enter a ticker symbol to begin.")
@@ -108,6 +110,32 @@ def main() -> None:
         st.line_chart(enriched["RSI_14"], height=200)
     else:
         st.write("RSI indicator not available.")
+
+    if show_candles:
+        st.subheader("Candlestick pattern scan")
+        try:
+            candle_result = analyze_candlestick_patterns(prices)
+            last_pattern = candle_result.get("last_pattern")
+            last_date = candle_result.get("last_pattern_date")
+            table = candle_result.get("table")
+
+            if last_pattern:
+                if last_date is not None:
+                    st.markdown(
+                        f"**Most recent pattern:** {last_pattern} on {last_date}"
+                    )
+                else:
+                    st.markdown(f"**Most recent pattern:** {last_pattern}")
+            else:
+                st.info("No recent candlestick patterns detected.")
+
+            if table is not None and not table.empty:
+                table = table.copy()
+                # Ensure index / date is stringified for Streamlit/Arrow safety.
+                table["date"] = table["date"].astype(str)
+                st.dataframe(table.tail(60))
+        except Exception as exc:  # pragma: no cover - UI path
+            st.info(f"Candlestick analysis unavailable: {exc}")
 
     st.subheader("Fundamentals & basic ratios")
     fundamentals_display = {
