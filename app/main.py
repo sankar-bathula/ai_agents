@@ -20,6 +20,7 @@ from agents.risk_agent import analyze_position_risk
 from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
 from agents.candlestick_agent import analyze_candlestick_patterns
+from agents.support_resistance_agent import analyze_support_resistance
 
 
 load_dotenv()
@@ -75,6 +76,7 @@ def main() -> None:
         show_sentiment = st.checkbox("Show news sentiment", value=True)
         show_newsapi = st.checkbox("Show NewsAPI sentiment", value=False)
         show_candles = st.checkbox("Show candlestick patterns", value=False)
+        show_sr = st.checkbox("Show support / resistance", value=False)
 
     if not ticker:
         st.info("Enter a ticker symbol to begin.")
@@ -136,6 +138,42 @@ def main() -> None:
                 st.dataframe(table.tail(60))
         except Exception as exc:  # pragma: no cover - UI path
             st.info(f"Candlestick analysis unavailable: {exc}")
+
+    if show_sr:
+        st.subheader("Support & resistance levels")
+        try:
+            sr_result = analyze_support_resistance(prices)
+            nearest_support = sr_result.get("nearest_support")
+            nearest_resistance = sr_result.get("nearest_resistance")
+            last_close = sr_result.get("last_close")
+            table = sr_result.get("table")
+
+            if last_close is not None:
+                st.markdown(f"**Last close:** {last_close:.2f}")
+
+            if nearest_support is not None:
+                st.markdown(
+                    f"**Nearest support:** {nearest_support.price:.2f} "
+                    f"(touches: {nearest_support.touches})"
+                )
+            if nearest_resistance is not None:
+                st.markdown(
+                    f"**Nearest resistance:** {nearest_resistance.price:.2f} "
+                    f"(touches: {nearest_resistance.touches})"
+                )
+            if nearest_support is None and nearest_resistance is None:
+                st.info("No clear support or resistance levels detected yet.")
+
+            if table is not None and not table.empty:
+                table = table.copy()
+                # Stringify dates for Streamlit/Arrow.
+                if "first_touched" in table.columns:
+                    table["first_touched"] = table["first_touched"].astype(str)
+                if "last_touched" in table.columns:
+                    table["last_touched"] = table["last_touched"].astype(str)
+                st.dataframe(table)
+        except Exception as exc:  # pragma: no cover - UI path
+            st.info(f"Support / resistance analysis unavailable: {exc}")
 
     st.subheader("Fundamentals & basic ratios")
     fundamentals_display = {
