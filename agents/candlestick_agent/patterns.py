@@ -18,11 +18,55 @@ class CandlestickPattern:
 
 
 def _ensure_ohlc_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure we have standard OHLC columns, trying to be tolerant of
+    differing capitalisation or presence of only an adjusted close.
+    """
+    if df is None or df.empty:
+        raise ValueError("Price DataFrame is empty; cannot analyze candlestick patterns.")
+
+    data = df.copy()
+
+    # yfinance can sometimes return MultiIndex columns like ('TICKER', 'Open').
+    # In that case, collapse to the last element (e.g. 'Open', 'High', ...).
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = [str(levels[-1]) for levels in data.columns]
+
+    # First, try a case-insensitive normalisation of common OHLC names.
+    normalised: dict[str, str] = {}
+    for col in data.columns:
+        key = str(col).strip().lower()
+        if key == "open":
+            normalised[col] = "Open"
+        elif key == "high":
+            normalised[col] = "High"
+        elif key == "low":
+            normalised[col] = "Low"
+        elif key in ("close", "closing"):
+            normalised[col] = "Close"
+        elif key in ("adj close", "adj_close", "adjusted close"):
+            # Fall back to adjusted close as Close if nothing else is available.
+            normalised[col] = "Adj Close"
+
+    if normalised:
+        data = data.rename(columns=normalised)
+
     required = {"Open", "High", "Low", "Close"}
-    missing = required.difference(df.columns)
+    missing = required.difference(data.columns)
+
+    # If we are missing some fields but have an adjusted close, synthesise OHLC
+    # from it as a flat bar so that the agent can still run.
+    if missing and "Adj Close" in data.columns:
+        adj = data["Adj Close"]
+        for name in required:
+            if name not in data.columns:
+                data[name] = adj
+        missing = required.difference(data.columns)
+
     if missing:
         raise ValueError(f"Expected OHLC columns {sorted(required)}, missing: {sorted(missing)}")
-    return df.copy()
+
+    return data
 
 
 def _body(df: pd.DataFrame) -> pd.Series:
