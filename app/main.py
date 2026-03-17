@@ -278,7 +278,7 @@ def main() -> None:
     except Exception as exc:  # pragma: no cover - UI path
         st.info(f"Unable to compute risk/reward: {exc}")
 
-    if show_sentiment:
+    #if show_sentiment:
         st.subheader("News sentiment (free Yahoo! Finance feed)")
         try:
             sentiment_result = load_sentiment(ticker)
@@ -319,9 +319,13 @@ def main() -> None:
         st.subheader("News sentiment (NewsAPI.org)")
         col_n1, col_n2, col_n3 = st.columns([2, 1, 1])
         with col_n1:
+            default_news_query = fundamentals.get("longName") or fundamentals.get("shortName") or ticker
+            # NewsAPI works better with company names than exchange-suffixed tickers (e.g. RELIANCE.NS).
+            if isinstance(default_news_query, str) and "." in default_news_query:
+                default_news_query = default_news_query.split(".", 1)[0]
             news_query = st.text_input(
                 "NewsAPI query",
-                value=ticker,
+                value=str(default_news_query),
                 help="You can use a ticker, company name, or phrase (e.g. 'Reliance Industries').",
             )
         with col_n2:

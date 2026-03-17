@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 
@@ -27,10 +28,23 @@ def _ensure_ohlc_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     data = df.copy()
 
-    # yfinance can sometimes return MultiIndex columns like ('TICKER', 'Open').
-    # In that case, collapse to the last element (e.g. 'Open', 'High', ...).
+    # yfinance can return MultiIndex columns. Common shapes:
+    # - ('Close', 'RELIANCE.NS') with names ['Price', 'Ticker']
+    # - ('RELIANCE.NS', 'Close') with names ['Ticker', 'Price']
+    #
+    # Collapse to the level that contains OHLC labels.
     if isinstance(data.columns, pd.MultiIndex):
-        data.columns = [str(levels[-1]) for levels in data.columns]
+        required = {"Open", "High", "Low", "Close"}
+        level0 = {str(x) for x in data.columns.get_level_values(0)}
+        level_last = {str(x) for x in data.columns.get_level_values(-1)}
+
+        if required.issubset(level0):
+            data.columns = [str(x) for x in data.columns.get_level_values(0)]
+        elif required.issubset(level_last):
+            data.columns = [str(x) for x in data.columns.get_level_values(-1)]
+        else:
+            # Fallback: flatten by joining all levels.
+            data.columns = [" ".join(str(x) for x in tup).strip() for tup in data.columns]
 
     # First, try a case-insensitive normalisation of common OHLC names.
     normalised: dict[str, str] = {}
@@ -107,6 +121,11 @@ def detect_basic_patterns(df: pd.DataFrame) -> pd.DataFrame:
     """
     data = _ensure_ohlc_columns(df)
 
+    # Ensure numeric OHLC for stable math (yfinance can yield object dtypes in
+    # some edge cases, which triggers pandas downcasting warnings).
+    for c in ("Open", "High", "Low", "Close"):
+        data[c] = pd.to_numeric(data[c], errors="coerce")
+
     body = _body(data)
     rng = _range(data)
     upper = _upper_shadow(data)
@@ -114,9 +133,10 @@ def detect_basic_patterns(df: pd.DataFrame) -> pd.DataFrame:
 
     # Avoid division by zero on very flat bars.
     eps = 1e-9
-    body_ratio = body / (rng.replace(0, pd.NA).fillna(eps))
-    upper_ratio = upper / (rng.replace(0, pd.NA).fillna(eps))
-    lower_ratio = lower / (rng.replace(0, pd.NA).fillna(eps))
+    denom = rng.astype("float64").where(rng.astype("float64") != 0.0, np.nan).fillna(eps)
+    body_ratio = body.astype("float64") / denom
+    upper_ratio = upper.astype("float64") / denom
+    lower_ratio = lower.astype("float64") / denom
 
     is_small_body = body_ratio < 0.25
     is_very_small_body = body_ratio < 0.1
