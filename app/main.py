@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -21,6 +22,7 @@ from agents.sentiment_agent import analyze_recent_sentiment
 from agents.technical_agent import add_basic_indicators
 from agents.candlestick_agent import analyze_candlestick_patterns
 from agents.support_resistance_agent import analyze_support_resistance
+from agents.db_agent import init_db, insert_analysis_snapshot
 
 
 load_dotenv()
@@ -32,6 +34,9 @@ st.set_page_config(
 
 st.title("AI Stock Analyzer")
 st.caption("Minimal demo: Data, Technical, and Fundamental agents for a single ticker")
+
+# Ensure database is ready.
+init_db()
 
 
 @st.cache_data(show_spinner=False)
@@ -113,6 +118,7 @@ def main() -> None:
     else:
         st.write("RSI indicator not available.")
 
+    candle_result = None
     if show_candles:
         st.subheader("Candlestick pattern scan")
         try:
@@ -139,6 +145,7 @@ def main() -> None:
         except Exception as exc:  # pragma: no cover - UI path
             st.info(f"Candlestick analysis unavailable: {exc}")
 
+    sr_result = None
     if show_sr:
         st.subheader("Support & resistance levels")
         try:
@@ -315,6 +322,7 @@ def main() -> None:
         except Exception as exc:  # pragma: no cover - UI path
             st.warning(f"Sentiment analysis unavailable: {exc}")
 
+    newsapi_result = None
     if show_newsapi:
         st.subheader("News sentiment (NewsAPI.org)")
         col_n1, col_n2, col_n3 = st.columns([2, 1, 1])
@@ -382,6 +390,35 @@ def main() -> None:
     if show_raw:
         st.subheader("Raw enriched data (tail)")
         st.dataframe(enriched.tail(100))
+
+    # Persist a snapshot of this analysis into SQLite.
+    try:
+        nearest_support_price = None
+        nearest_resistance_price = None
+        if sr_result is not None:
+            ns = sr_result.get("nearest_support")
+            nr = sr_result.get("nearest_resistance")
+            nearest_support_price = float(ns.price) if ns is not None else None
+            nearest_resistance_price = float(nr.price) if nr is not None else None
+
+        last_candle_pattern = None
+        if candle_result is not None:
+            last_candle_pattern = candle_result.get("last_pattern")
+
+        insert_analysis_snapshot(
+            ticker=ticker,
+            fundamentals=fundamentals,
+            ratios=ratios,
+            risk_result=risk_result if "risk_result" in locals() else None,
+            sentiment_result=sentiment_result if "sentiment_result" in locals() else None,
+            newsapi_result=newsapi_result,
+            last_candle_pattern=last_candle_pattern,
+            nearest_support_price=nearest_support_price,
+            nearest_resistance_price=nearest_resistance_price,
+            last_close=last_close,
+        )
+    except Exception as exc:  # pragma: no cover - UI path
+        st.info(f"Could not save analysis snapshot to DB: {exc}")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
