@@ -28,12 +28,12 @@ from agents.db_agent import init_db, insert_analysis_snapshot
 load_dotenv()
 
 st.set_page_config(
-    page_title="AI Stock Analyzer (Minimal Demo)",
+    page_title="AI Stock Analyzer ",
     layout="wide",
 )
 
 st.title("AI Stock Analyzer")
-st.caption("Minimal demo: Data, Technical, and Fundamental agents for a single ticker")
+st.caption("Minimal demoS: Data, Technical, and Fundamental agents for a single ticker")
 
 # Ensure database is ready.
 init_db()
